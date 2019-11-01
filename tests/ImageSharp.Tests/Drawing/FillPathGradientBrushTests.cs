@@ -153,5 +153,28 @@ namespace SixLabors.ImageSharp.Tests.Drawing
 
             Assert.Throws<ArgumentOutOfRangeException>(Create);
         }
+
+        [Theory]
+        [WithBlankImages(200, 200, PixelTypes.Rgb24)]
+        public void NewIssueTest<TPixel>(
+            TestImageProvider<TPixel> provider)
+            where TPixel : struct, IPixel<TPixel>
+        {
+            provider.VerifyOperation(
+                img =>
+                {
+                    var brush = new PathGradientBrush(
+                        new[]
+                        {
+                            new PointF(0, 0),
+                            new PointF(200, 0),
+                            new PointF(200, 200),
+                            new PointF(0, 200),
+                            new PointF(0, 0)
+                        },
+                        new[] { Color.Red, Color.Yellow, Color.Green, Color.DarkCyan, Color.Red });
+                    img.Mutate(m => m.Fill(brush));
+                });
+        }
     }
 }
