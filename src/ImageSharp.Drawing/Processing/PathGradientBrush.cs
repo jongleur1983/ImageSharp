@@ -150,24 +150,37 @@ namespace SixLabors.ImageSharp.Processing
 
                 IReadOnlyList<ILineSegment> segments = path.LineSegments;
                 int segmentCount = segments.Count;
-                var points = new List<Vector2>();
+
+                Vector2? mayFirstPoint = null;
+                Vector2 lastPoint = default;
 
                 for (int i = 0; i < segmentCount; i++)
                 {
                     foreach (PointF p in segments[i].Flatten())
                     {
-                        points.Add(p);
+                        lastPoint = p;
+                        if (mayFirstPoint is null)
+                        {
+                            mayFirstPoint = p;
+                        }
                     }
                 }
 
-                this.Start = points[0];
-                this.StartColor = startColor.ToVector4();
+                if (mayFirstPoint is Vector2 firstPoint)
+                {
+                    this.Start = firstPoint;
+                    this.StartColor = startColor.ToVector4();
 
-                this.End = points[points.Count - 1];
-                this.EndColor = endColor.ToVector4();
+                    this.End = lastPoint;
+                    this.EndColor = endColor.ToVector4();
 
-                this.length = DistanceBetween(this.End, this.Start);
-                this.buffer = new PointF[this.path.MaxIntersections];
+                    this.length = DistanceBetween(lastPoint, firstPoint);
+                    this.buffer = new PointF[this.path.MaxIntersections];
+                }
+
+                ThrowNoPointsFound();
+
+                void ThrowNoPointsFound() => throw new ArgumentException("no points found in path", nameof(path));
             }
 
             public PointF Start { get; }
