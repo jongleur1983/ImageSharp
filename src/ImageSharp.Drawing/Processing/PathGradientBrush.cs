@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
 
 using SixLabors.ImageSharp.PixelFormats;
@@ -18,7 +17,7 @@ namespace SixLabors.ImageSharp.Processing
     /// </summary>
     public sealed class PathGradientBrush : IBrush
     {
-        private readonly IList<Edge> edges;
+        private readonly Edge[] edges;
 
         private readonly Color centerColor;
 
@@ -47,7 +46,7 @@ namespace SixLabors.ImageSharp.Processing
                 throw new ArgumentNullException(nameof(colors));
             }
 
-            if (!colors.Any())
+            if (colors.Length == 0)
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(colors),
@@ -67,8 +66,13 @@ namespace SixLabors.ImageSharp.Processing
 
             Color ColorAt(int index) => colors[index % colors.Length];
 
-            this.edges = lines.Select(s => new Path(s))
-                .Select((path, i) => new Edge(path, ColorAt(i), ColorAt(i + 1))).ToList();
+            var theEdges = new Edge[lines.Length];
+            for (int i = 0; i < lines.Length; i++)
+            {
+                theEdges[i] = new Edge(new Path(lines[i]), ColorAt(i), ColorAt(i + 1));
+            }
+
+            this.edges = theEdges;
         }
 
         /// <summary>
@@ -98,14 +102,20 @@ namespace SixLabors.ImageSharp.Processing
                 throw new ArgumentNullException(nameof(colors));
             }
 
-            if (!colors.Any())
+            if (colors.Length == 0)
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(colors),
                     "One or more color is needed to construct a path gradient brush.");
             }
 
-            return new Color(colors.Select(c => c.ToVector4()).Aggregate((p1, p2) => p1 + p2) / colors.Length);
+            Vector4 sum = Vector4.Zero;
+            for (int i = 0; i < colors.Length; i++)
+            {
+                sum += colors[i].ToVector4();
+            }
+
+            return new Color(sum / colors.Length);
         }
 
         private static float DistanceBetween(PointF p1, PointF p2) => ((Vector2)(p2 - p1)).Length();
@@ -138,12 +148,22 @@ namespace SixLabors.ImageSharp.Processing
             {
                 this.path = path;
 
-                Vector2[] points = path.LineSegments.SelectMany(s => s.Flatten()).Select(p => (Vector2)p).ToArray();
+                IReadOnlyList<ILineSegment> segments = path.LineSegments;
+                int segmentCount = segments.Count;
+                var points = new List<Vector2>();
 
-                this.Start = points.First();
+                for (int i = 0; i < segmentCount; i++)
+                {
+                    foreach (PointF p in segments[i].Flatten())
+                    {
+                        points.Add(p);
+                    }
+                }
+
+                this.Start = points[0];
                 this.StartColor = startColor.ToVector4();
 
-                this.End = points.Last();
+                this.End = points[points.Count - 1];
                 this.EndColor = endColor.ToVector4();
 
                 this.length = DistanceBetween(this.End, this.Start);
@@ -167,9 +187,21 @@ namespace SixLabors.ImageSharp.Processing
                     return null;
                 }
 
-                return this.buffer.Take(intersections)
-                    .Select(p => new Intersection(point: p, distance: ((Vector2)(p - start)).LengthSquared()))
-                    .Aggregate((min, current) => min.Distance > current.Distance ? current : min);
+                float minDistanceToPSquared = float.MaxValue;
+                Intersection? minDistanceIntersection = null;
+
+                for (int i = 0; i < intersections; i++)
+                {
+                    PointF p = this.buffer[i];
+                    float distanceToPSquared = ((Vector2)(p - start)).LengthSquared();
+                    if (distanceToPSquared < minDistanceToPSquared)
+                    {
+                        minDistanceIntersection = new Intersection(p, distanceToPSquared);
+                        minDistanceToPSquared = distanceToPSquared;
+                    }
+                }
+
+                return minDistanceIntersection;
             }
 
             public Vector4 ColorAt(float distance)
@@ -194,7 +226,7 @@ namespace SixLabors.ImageSharp.Processing
 
             private readonly float maxDistance;
 
-            private readonly IList<Edge> edges;
+            private readonly Edge[] edges;
 
             /// <summary>
             /// Initializes a new instance of the <see cref="PathGradientBrushApplicator{TPixel}"/> class.
@@ -205,19 +237,36 @@ namespace SixLabors.ImageSharp.Processing
             /// <param name="options">The options.</param>
             public PathGradientBrushApplicator(
                 ImageFrame<TPixel> source,
-                IList<Edge> edges,
+                Edge[] edges,
                 Color centerColor,
                 GraphicsOptions options)
                 : base(source, options)
             {
                 this.edges = edges;
 
-                PointF[] points = edges.Select(s => s.Start).ToArray();
+                var points = new PointF[edges.Length];
 
-                this.center = points.Aggregate((p1, p2) => p1 + p2) / edges.Count;
+                PointF sum = PointF.Empty;
+
+                // we use the SQUARED distance to determine the maximum as it's faster to calculate.
+                // Distance is Sqrt(a^2 + b^2), DistanceSquared is just a^2+b^2.
+                // by using Squared values first, we don't need the SquareRoot each time, but only once at the end.
+                float maxDistanceSquared = -1;
+
+                for (int i = 0; i < edges.Length; i++)
+                {
+                    PointF p = edges[i].Start;
+                    points[i] = p;
+                    sum += p;
+
+                    float distanceSquared = ((Vector2)(p - this.center)).LengthSquared();
+                    maxDistanceSquared = MathF.Max(distanceSquared, maxDistanceSquared);
+                }
+
+                this.center = sum / edges.Length;
                 this.centerColor = centerColor.ToVector4();
 
-                this.maxDistance = points.Select(p => (Vector2)(p - this.center)).Select(d => d.Length()).Max();
+                this.maxDistance = MathF.Sqrt(maxDistanceSquared);
             }
 
             /// <inheritdoc />
